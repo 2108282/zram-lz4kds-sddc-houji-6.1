@@ -1,4 +1,21 @@
 #include <linux/version.h>
+
+#ifndef abs_diff
+#define abs_diff(a, b) ({				typeof(a) __a = (a);				typeof(b) __b = (b);				__a > __b ? (__a - __b) : (__b - __a);	})
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 5, 0)
+static inline bool check_charging_state(void)
+{
+	return true;
+}
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 4, 0)
+#define CHS_CLASS_CONST const
+#else
+#define CHS_CLASS_CONST
+#endif
 /*
  * Compressed RAM block device
  *
@@ -5693,6 +5710,7 @@ static ssize_t reset_store(struct device *dev,
 	return len;
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 5, 0)
 static int zram_open(struct gendisk *disk, blk_mode_t mode)
 {
 	struct zram *zram = disk->private_data;
@@ -5704,6 +5722,19 @@ static int zram_open(struct gendisk *disk, blk_mode_t mode)
 		return -EBUSY;
 	return 0;
 }
+#else
+static int zram_open(struct block_device *bdev, fmode_t mode)
+{
+	struct zram *zram = bdev->bd_disk->private_data;
+
+	WARN_ON(!mutex_is_locked(&bdev->bd_disk->open_mutex));
+
+	/* zram was claimed to reset so open request fails */
+	if (zram->claim)
+		return -EBUSY;
+	return 0;
+}
+#endif
 
 static const struct block_device_operations zram_devops = {
 	.open = zram_open,
@@ -5914,7 +5945,9 @@ static int zram_add(void)
 	set_capacity(zram->disk, 0);
 	/* zram devices sort of resembles non-rotational disks */
 	blk_queue_flag_set(QUEUE_FLAG_NONROT, zram->disk->queue);
+	#ifdef QUEUE_FLAG_SYNCHRONOUS
 	blk_queue_flag_set(QUEUE_FLAG_SYNCHRONOUS, zram->disk->queue);
+#endif
 	blk_queue_write_cache(zram->disk->queue, true, false);
 
 	/*
@@ -6024,8 +6057,8 @@ static int zram_remove(struct zram *zram)
  * creates a new un-initialized zram device and returns back this device's
  * device_id (or an error code if it fails to create a new device).
  */
-static ssize_t hot_add_show(const struct class *class,
-			const struct class_attribute *attr,
+static ssize_t hot_add_show(CHS_CLASS_CONST struct class *class,
+			CHS_CLASS_CONST struct class_attribute *attr,
 			char *buf)
 {
 	int ret;
@@ -6042,8 +6075,8 @@ static ssize_t hot_add_show(const struct class *class,
 static struct class_attribute class_attr_hot_add =
 	__ATTR(hot_add, 0400, hot_add_show, NULL);
 
-static ssize_t hot_remove_store(const struct class *class,
-			const struct class_attribute *attr,
+static ssize_t hot_remove_store(CHS_CLASS_CONST struct class *class,
+			CHS_CLASS_CONST struct class_attribute *attr,
 			const char *buf,
 			size_t count)
 {

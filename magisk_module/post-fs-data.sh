@@ -242,6 +242,17 @@ timeout 3 sh -c 'echo lz4kds > /sys/block/zram0/comp_algorithm' 2>>"$LOG"
 log "algo save rc=$? now=[$(timeout 2 cat /sys/block/zram0/comp_algorithm 2>/dev/null)]"
 kmark "algo set done"
 
+# 立即设置 16GB disksize 并建立 swap，打破系统启动时等待 swap 的死锁循环
+DS=$(cat /sys/block/zram0/disksize 2>/dev/null)
+if [ "$DS" = "0" ] || [ -z "$DS" ]; then
+	echo 16G > /sys/block/zram0/disksize 2>>"$LOG"
+	log "disksize set to 16G rc=$? (val=[$(cat /sys/block/zram0/disksize 2>/dev/null)])"
+	mkswap /dev/block/zram0 2>>"$LOG"
+	swapon /dev/block/zram0 -p 32758 2>>"$LOG"
+	log "swapon rc=$? (swaps=[$(grep zram /proc/swaps 2>/dev/null)])"
+	kmark "zram0 16G swap online"
+fi
+
 # --- v6.6: 开机绑定改到 service.sh (boot_completed 之后) ---
 # v6.5 教训: 在 post-fs-data 里创建 1GiB 镜像 + 绑 loop, 跟设备早期的
 # /data 初始化/加密流程打架, 会触发一次非正常重启(并把 wb.conf 丢成全零)。

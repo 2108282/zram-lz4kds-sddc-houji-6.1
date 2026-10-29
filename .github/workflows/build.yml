@@ -1,0 +1,115 @@
+name: Build LZ4KDS ZRAM for Xiaomi 14 (houji)
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-kernel-module:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Clang 17 and build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-17 lld-17 llvm-17 gcc-aarch64-linux-gnu bison flex \
+                                  libssl-dev libelf-dev bc ccache zip libncurses-dev
+          
+          # Create toolchain symlinks
+          sudo ln -sf /usr/bin/clang-17 /usr/bin/clang
+          sudo ln -sf /usr/bin/ld.lld-17 /usr/bin/ld.lld
+          sudo ln -sf /usr/bin/llvm-ar-17 /usr/bin/llvm-ar
+          sudo ln -sf /usr/bin/llvm-nm-17 /usr/bin/llvm-nm
+          sudo ln -sf /usr/bin/llvm-objcopy-17 /usr/bin/llvm-objcopy
+          sudo ln -sf /usr/bin/llvm-objdump-17 /usr/bin/llvm-objdump
+          sudo ln -sf /usr/bin/llvm-strip-17 /usr/bin/llvm-strip
+
+          clang --version
+
+      - name: Clone Android 14 6.1 GKI Common Kernel
+        run: |
+          git clone --depth 1 --branch android14-6.1 https://android.googlesource.com/kernel/common kernel_common
+          cd kernel_common
+          git fetch --depth 1 origin 0c3d559bcd858276f52e5058cff2f741c8808d98
+          git checkout 0c3d559bcd858276f52e5058cff2f741c8808d98
+
+      - name: Integrate crystal_hybridswap into kernel tree
+        run: |
+          cp -r drivers/crystal_hybridswap kernel_common/drivers/block/
+          
+          # Hook Kconfig
+          echo 'source "drivers/block/crystal_hybridswap/Kconfig"' >> kernel_common/drivers/block/Kconfig
+          
+          # Hook Makefile
+          echo 'obj-$(CONFIG_CRYSTAL_HYBRIDSWAP) += crystal_hybridswap/' >> kernel_common/drivers/block/Makefile
+
+      - name: Configure and Build Kernel Module
+        env:
+          BRANCH: android14
+          KMI_GENERATION: 11
+          BUILD_NUMBER: 14529422
+        run: |
+          cd kernel_common
+          
+          # Copy houji defconfig
+          cp ../houji_defconfig arch/arm64/configs/houji_defconfig
+          
+          # Generate config
+          make ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- houji_defconfig
+          
+          # Set exact kernel release string
+          echo "6.1.138-android14-11-g0c3d559bcd85-ab14529422" > include/config/kernel.release
+          
+          # Build kernel and modules
+          make ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)
+          
+          # Locate compiled zram.ko
+          KO_PATH=$(find drivers/block/crystal_hybridswap/ -name "zram.ko")
+          if [ -z "$KO_PATH" ] || [ ! -f "$KO_PATH" ]; then
+            echo "ERROR: zram.ko not found!"
+            exit 1
+          fi
+          
+          echo "Found compiled module: $KO_PATH"
+          llvm-objdump -d --no-show-raw-insn "$KO_PATH" | head -n 20
+          llvm-nm "$KO_PATH" | grep crystal_ | head -n 10
+          
+          # Check vermagic
+          strings "$KO_PATH" | grep vermagic=
+          
+          cp "$KO_PATH" ../magisk_module/zram.ko
+
+      - name: Package Magisk / KernelSU Module
+        run: |
+          cd magisk_module
+          md5sum zram.ko | cut -d' ' -f1 > .ko_md5
+          echo "Module MD5: $(cat .ko_md5)"
+          zip -r9 ../zram-lz4kds-sddc-houji-6.1.zip .
+          cd ..
+          ls -lh zram-lz4kds-sddc-houji-6.1.zip
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zram-lz4kds-sddc-houji-6.1
+          path: zram-lz4kds-sddc-houji-6.1.zip
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        with:
+          tag_name: v7.6-houji-6.1
+          name: ZRAM LZ4KDS + SDDC (小米14 houji 6.1 内核专用版)
+          body: |
+            ## 小米14 (houji) ZRAM LZ4KDS 模块
+            - **基线内核**：`6.1.138-android14-11-g0c3d559bcd85-ab14529422` (Android 14 6.1 GKI)
+            - **算法特性**：LZ4KDS（LZ4KD + SDDC 跨页去重 REF/ALIAS/DELTA）
+            - **回写引擎**：自动对接 HyperOS `extm` / dm-swapfile 回写通路，全自动点火与水位配置
+            - **精简优化**：Linux 6.1 环境无需加载 tpzap / tpfence，开箱即用，零脏内存干扰
+          files: zram-lz4kds-sddc-houji-6.1.zip

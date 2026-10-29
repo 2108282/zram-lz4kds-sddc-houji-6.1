@@ -1,0 +1,172 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+#ifndef _CRYSTAL_HYBRIDSWAP_ZMS_H_
+#define _CRYSTAL_HYBRIDSWAP_ZMS_H_
+
+#include <linux/gfp_types.h>
+#include <linux/kernel.h>
+#include <linux/mm.h>
+#include <linux/types.h>
+
+struct block_device;
+struct zms;
+
+#define ZMS_MAX_PAGES_PER_ZSPAGE 8U
+#define ZMS_ALIGN_SHIFT 4
+#define ZMS_ALIGN (1U << ZMS_ALIGN_SHIFT)
+#define ZMS_MIN_SIZE ZMS_ALIGN
+#define ZMS_CLASS_SIZE ZMS_ALIGN
+
+static inline unsigned int zms_size_to_class(size_t size)
+{
+	size_t aligned = ALIGN(max_t(size_t, size, ZMS_MIN_SIZE), ZMS_ALIGN);
+
+	return (aligned / ZMS_CLASS_SIZE) - 1;
+}
+
+typedef void (*zms_account_write_pages_t)(unsigned long pages);
+
+struct zms_io {
+	bool submitted;
+	bool write;
+	unsigned long block_index;
+	u64 latency_ns;
+	int ret;
+	unsigned int read_submitted;
+	unsigned int read_ios;
+	unsigned int read_failed;
+	u64 read_total_latency_ns;
+	u64 read_max_latency_ns;
+	unsigned long read_last_block;
+	u64 read_last_latency_ns;
+	int read_last_ret;
+	unsigned int write_submitted;
+	unsigned int write_ios;
+	unsigned int write_failed;
+	u64 write_total_latency_ns;
+	u64 write_max_latency_ns;
+	unsigned long write_last_block;
+	u64 write_last_latency_ns;
+	int write_last_ret;
+};
+
+struct zms_stats {
+	unsigned long nr_blocks;
+	unsigned long nr_handles;
+	unsigned long used_blocks;
+	unsigned long free_blocks;
+	unsigned long objects;
+	unsigned long pending_free;
+	unsigned long partial_blocks;
+	unsigned long low_blocks;
+	unsigned long mid_blocks;
+	unsigned long almost_full_blocks;
+	unsigned long full_blocks;
+	unsigned long dirty_blocks;
+	unsigned long dirty_pages;
+	unsigned long read_merge_waits;
+	unsigned long read_merge_wakeups;
+	unsigned long read_merge_hits;
+	unsigned long read_merge_mismatch;
+	unsigned long read_merge_failures;
+	unsigned long empty_blocks;
+	unsigned long valid_classes;
+	unsigned long alloc_blocks;
+	unsigned long alloc_run_successes;
+	unsigned long alloc_run_failures;
+	unsigned long alloc_run_success_pct;
+	unsigned long alloc_run_success_pages;
+	unsigned long alloc_run_partial_pages;
+	unsigned long alloc_run_fallback_pages;
+	unsigned long alloc_run_contiguous_page_pct;
+	unsigned long alloc_run_segments;
+	unsigned long alloc_run_avg_segment_pages;
+	unsigned long reclaim_before_alloc_calls;
+	unsigned long reclaim_before_alloc_handles;
+	unsigned long load_resident_hits;
+	unsigned long load_disk_misses;
+	unsigned long load_resident_hit_pct;
+	unsigned long store_batch_calls;
+	unsigned long store_batch_items;
+	unsigned long store_batch_resident_reuses;
+	unsigned long store_batch_new_blocks;
+	u64 stored_bytes;
+	u64 packed_bytes;
+	u64 physical_read_pages;
+	u64 physical_read_ios;
+	u64 physical_read_failed_pages;
+	u64 physical_write_pages;
+	u64 physical_write_ios;
+	u64 physical_write_failed_pages;
+	u64 bd_stat_read_pages;
+	u64 bd_stat_write_pages;
+};
+
+struct zms_store_item {
+	unsigned long handle;
+	const void *src;
+	size_t size;
+	int ret;
+};
+
+struct zms_load_item {
+	unsigned long handle;
+	void *dst;
+	size_t expected_size;
+	size_t loaded_size;
+	int ret;
+};
+
+struct zms_object_cookie {
+	unsigned long handle;
+	u32 generation;
+};
+
+struct zms_prefetch_info {
+	unsigned int source_pages;
+	unsigned int source_used;
+	unsigned int source_slots;
+	unsigned int safe_promotions;
+};
+
+struct zms_load_ref {
+	const void *data;
+	size_t size;
+	void *private;
+	struct zms_object_cookie cookie;
+};
+
+struct zms *zms_create(struct block_device *bdev, unsigned long nr_blocks,
+		       unsigned long nr_handles,
+		       zms_account_write_pages_t account_write_pages);
+int zms_set_nr_handles(struct zms *zms, unsigned long nr_handles);
+void zms_destroy(struct zms *zms);
+int zms_get_stats(struct zms *zms, struct zms_stats *stats);
+
+int zms_store(struct zms *zms, unsigned long handle, const void *src,
+	      size_t size, gfp_t gfp, struct zms_io *io);
+int zms_store_batch(struct zms *zms, struct zms_store_item *items,
+		    unsigned int nr, gfp_t gfp, struct zms_io *io);
+int zms_load(struct zms *zms, unsigned long handle, void *dst, size_t *size,
+	     gfp_t gfp, struct zms_io *io);
+int zms_load_cached_ref(struct zms *zms, unsigned long handle,
+			struct zms_load_ref *ref, struct zms_io *io);
+int zms_load_prefetch_ref(struct zms *zms,
+			  const struct zms_object_cookie *cookie,
+			  struct zms_load_ref *ref);
+bool zms_cookie_matches(struct zms *zms,
+			const struct zms_object_cookie *cookie);
+int zms_load_ref(struct zms *zms, unsigned long handle, struct zms_load_ref *ref,
+			 gfp_t gfp, struct zms_io *io);
+void zms_put_ref(struct zms *zms, struct zms_load_ref *ref);
+int zms_load_batch(struct zms *zms, struct zms_load_item *items,
+		   unsigned int nr, gfp_t gfp, struct zms_io *io);
+int zms_peek_ref_neighbors(struct zms *zms,
+			   const struct zms_load_ref *source,
+			   struct zms_object_cookie *objects,
+			   unsigned int max_objects,
+			   struct zms_prefetch_info *info);
+void zms_free(struct zms *zms, unsigned long handle);
+int zms_flush_all(struct zms *zms, gfp_t gfp, struct zms_io *last_io);
+int zms_compact(struct zms *zms, gfp_t gfp, struct zms_io *io);
+
+#endif

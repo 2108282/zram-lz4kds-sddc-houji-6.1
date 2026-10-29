@@ -1,0 +1,238 @@
+# SPDX-License-Identifier: GPL-2.0
+
+config CRYSTAL_HYBRIDSWAP
+	tristate "Crystal Hybridswap zram replacement framework"
+	depends on BLOCK && SYSFS && MMU
+	depends on ZRAM=n
+	depends on MEMCG
+	depends on CGROUPS
+	depends on CRYPTO_LZO || CRYPTO_LZ4 || CRYPTO_LZ4HC || CRYPTO_LZ4K || CRYPTO_LZ4KD || CRYPTO_DEFLATE || CRYPTO_842 || CRYPTO_ZSTD
+	select EVENTFD
+	select ZSMALLOC
+	select CRYSTAL_HYBRIDSWAP_ZRAM_WRITEBACK
+	help
+	  Build the Crystal Hybridswap rewrite compatibility framework with
+	  its own zram ABI-compatible block driver/data plane.  This option
+	  conflicts with CONFIG_ZRAM because it registers the zram block
+	  device, zram-control class, and zram sysfs ABI itself.  It still
+	  intentionally avoids the old extent/rmap/synchronous fault-out data
+	  path.  Swapout requests are routed through zram page writeback;
+	  zram handles per-slot readback on fault.
+
+config CRYSTAL_HYBRIDSWAP_LEGACY_EMPTY_APIS
+	bool "Expose legacy empty Crystal Hybridswap compatibility APIs"
+	depends on CRYSTAL_HYBRIDSWAP
+	default n
+	help
+	  Expose compatibility-only Crystal Hybridswap ABI files that currently
+	  do not provide functional behavior and are kept solely for old
+	  userspace.  This includes memory.aging_anon, memory.swapd_pid,
+	  memory.psi, memory.ub_ufs2zram_ratio and the zram max_comp_streams
+	  no-op sysfs attribute.  Leave this disabled unless old userspace
+	  explicitly depends on these placeholder files.  Enabling it does not
+	  restore the old OPPO extent/rmap/fault-out data path and does not wire
+	  these placeholder APIs into the core policy.
+
+config CRYSTAL_HYBRIDSWAP_LEGACY_SWAPD_MEMCGS_PARAM
+	bool "Enable legacy memory.swapd_memcgs_param memcg policy control"
+	depends on CRYSTAL_HYBRIDSWAP
+	default n
+	help
+	  Enable the old Hybridswap memory.swapd_memcgs_param compatibility
+	  control logic for memcg swapd policy.  This legacy ABI stores score
+	  levels and per-level parameters from old userspace; the tuple contains
+	  compatibility/saved-only fields such as ub_mem2zram_ratio and
+	  refault_threshold, plus fields that still affect Crystal automatic
+	  per-memcg zram-to-UFS writeback when this option is enabled, including
+	  min_score, max_score and ub_zram2ufs_ratio.
+
+	  Leave this disabled unless old userspace explicitly depends on the
+	  legacy memcg swapd policy ABI.  When disabled, memory.swapd_memcgs_param
+	  is not exposed and the old score/ratio policy is not used to select or
+	  weight Crystal automatic memcg writeback candidates.
+
+config CRYSTAL_HYBRIDSWAP_ERM_AVAIL_BUFFER_DEFAULT_ON
+	bool "Enable ERM avail buffer override by default"
+	depends on CRYSTAL_HYBRIDSWAP
+	default y
+	help
+	  Enable the memory.erm_avail_buffer override path by default.  This lets
+	  an OSvelte/ERM userspace daemon provide effective min/high available
+	  memory watermarks while Crystal Hybridswap keeps its own zram, quota,
+	  device-life, backoff, and writeback target guards.
+
+	  The runtime memory.erm_avail_buffer_enable knob can still disable or
+	  re-enable the override path without changing the base memory.avail_buffers
+	  ABI values.
+
+config CRYSTAL_HYBRIDSWAP_ZRAM_WRITEBACK
+	bool "zram writeback support for Crystal Hybridswap"
+	depends on CRYSTAL_HYBRIDSWAP
+	default y
+	help
+	  Keep backing_dev/writeback support inside the private zram driver.  The
+	  writeback data plane uses Crystal ZMS to pack compressed zram objects
+	  into PAGE_SIZE backing blocks with volatile in-memory metadata.  This is
+	  required by
+	  the migrated hybridswap data path so force_swapout and automatic
+	  policy writeback can move idle or incompressible zram objects to the
+	  configured backing device without reintroducing the old extent data
+	  plane.
+
+config CRYSTAL_HYBRIDSWAP_ZRAM_TRACK_ENTRY_ACTIME
+	bool "Track zram entry access time for Crystal Hybridswap"
+	depends on CRYSTAL_HYBRIDSWAP
+	default y
+	help
+	  Track per-entry access time so idle writeback can use age-based idle
+	  marking like upstream zram.  Crystal Hybridswap uses this to preserve
+	  the legacy policy knobs while keeping readback at the zram slot/page
+	  layer instead of exposing an external extent fault-out interface.
+
+config CRYSTAL_HYBRIDSWAP_ZRAM_MEMORY_TRACKING
+	bool "Track zram block state for Crystal Hybridswap"
+	depends on CRYSTAL_HYBRIDSWAP && DEBUG_FS
+	select CRYSTAL_HYBRIDSWAP_ZRAM_TRACK_ENTRY_ACTIME
+	help
+	  Expose zram debugfs block_state information under the zram debugfs
+	  root.  The directory and per-device names intentionally match upstream
+	  zram debugfs naming, while the Kconfig conflict with CONFIG_ZRAM
+	  prevents both providers from registering the same debugfs ABI.
+
+config CRYSTAL_HYBRIDSWAP_ZRAM_MULTI_COMP
+	bool "Enable multiple compression streams for zram replacement"
+	depends on CRYSTAL_HYBRIDSWAP
+	help
+	  Enable upstream zram-style secondary recompression streams in the
+	  private zram driver.  This keeps the standard zram
+	  recomp_algorithm and recompress sysfs attributes available when the
+	  extra compressors are configured, without changing the userspace ABI
+	  away from zram.
+
+config CRYSTAL_HYBRIDSWAP_SDDC
+	bool "Huawei-style SDDC support for Crystal Hybridswap"
+	depends on CRYSTAL_HYBRIDSWAP
+	default y
+	help
+	  Enable the private integration points used by Crystal Hybridswap's
+	  similarity detection and delta-compression data path.  It is enabled by
+	  default when Crystal Hybridswap is enabled; the representation remains
+	  opportunistic and falls back to ordinary compression on resource loss.
+
+config CRYSTAL_HYBRIDSWAP_SDDC_LZ4KD
+	bool "Private LZ4KD delta codec"
+	depends on CRYSTAL_HYBRIDSWAP_SDDC
+	depends on ARM64_4K_PAGES
+	default y
+	help
+	  Build a private copy of Huawei's LZ4KD ordinary and delta codec and
+	  expose it to the Crystal zcomp frontend as "lz4kd".  It does not alter
+	  the kernel Crypto API or register a global compression algorithm.
+
+	  The codec format and its 8 KiB delta window require 4 KiB pages.
+
+config CRYSTAL_HYBRIDSWAP_SDDC_ZMS_NATIVE
+	bool "Native SDDC writeback to ZMS"
+	depends on CRYSTAL_HYBRIDSWAP_SDDC
+	depends on CRYSTAL_HYBRIDSWAP_ZRAM_WRITEBACK
+	default y
+	help
+	  Keep resident SDDC DELTA and ALIAS wire data intact when it is written
+	  to Crystal ZMS.  The immutable reference remains resident in SDDC and
+	  is protected by a sparse writeback state until the ZMS object is
+	  released.  Ordinary and unsupported SDDC representations continue to
+	  use the flatten-to-ordinary-stream writeback path.
+
+config CRYSTAL_HYBRIDSWAP_SDDC_KUNIT_TEST
+	bool "KUnit tests for private SDDC and LZ4KD"
+	depends on KUNIT=y
+	depends on CRYSTAL_HYBRIDSWAP_SDDC_LZ4KD
+	default n
+	help
+	  Test ordinary and delta round trips, raw 4 KiB payloads, malformed
+	  streams, and the full 8 KiB reference/current boundary.  Also exercise
+	  the higher-level SDDC reference publication, generation cookies, slot
+	  ownership, snapshot identity, stale-job rejection, flatten retry, wire
+	  header validation, and manager admission state.
+
+config CRYSTAL_HYBRIDSWAP_ZRAM_DEF_COMP
+	string "Default Crystal Hybridswap zram compressor"
+	depends on CRYSTAL_HYBRIDSWAP
+	default "lz4kd" if CRYSTAL_HYBRIDSWAP_SDDC_LZ4KD
+	default "lz4kd" if CRYPTO_LZ4KD
+	default "lz4" if CRYPTO_LZ4
+	default "lzo" if CRYPTO_LZO
+	default "lz4hc" if CRYPTO_LZ4HC
+	default "lz4k" if CRYPTO_LZ4K
+	default "deflate" if CRYPTO_DEFLATE
+	default "842" if CRYPTO_842
+	default "zstd" if CRYPTO_ZSTD
+	help
+	  Select the primary compressor used by the private Crystal Hybridswap
+	  zram device before userspace changes /sys/block/zramX/comp_algorithm.
+	  The value must name an algorithm supported by the current zcomp
+	  configuration, such as lzo, lzo-rle, lz4, lz4kd, or zstd.  The private
+	  LZ4KD backend is selected directly and all other algorithms continue to
+	  use the kernel Crypto API.
+
+config CRYSTAL_HYBRIDSWAP_ZRAM_LOCK_DEF_COMP
+	bool "Lock the primary zram compressor to the build-time default"
+	depends on CRYSTAL_HYBRIDSWAP
+	default n
+	help
+	  Reject writes to the primary compressor node
+	  (/sys/block/zramX/comp_algorithm) with -EPERM, so the algorithm named
+	  by CRYSTAL_HYBRIDSWAP_ZRAM_DEF_COMP stays in effect for the whole boot.
+
+	  This exists because vendor userspace may overwrite the primary
+	  compressor before the zram device is initialised, and after
+	  init_done() the algorithm can no longer be changed at all -- leaving no
+	  later point at which a corrected value could be applied.
+
+	  Only the primary compressor is locked; the secondary compressor
+	  (recomp_algorithm) stays writable so recompression keeps working.
+	  Callers that ignore the return value, such as vendor post-boot
+	  scripts, are unaffected.
+
+config CRYSTAL_HYBRIDSWAP_ZRAM_PIN_SIZE
+	bool "Pin the zram device size to a fixed ratio of physical memory"
+	depends on CRYSTAL_HYBRIDSWAP
+	default n
+	help
+	  Substitute a computed size for every write to
+	  /sys/block/zramX/disksize: instead of the caller's value the device is
+	  sized to CRYSTAL_HYBRIDSWAP_ZRAM_PIN_SIZE_PCT percent of physical
+	  memory.  The write still reports success, so callers that ignore or
+	  check the return value are unaffected.
+
+	  Note the deliberate difference from
+	  CRYSTAL_HYBRIDSWAP_ZRAM_LOCK_DEF_COMP, which rejects writes: disksize
+	  defaults to 0, so rejecting a write would leave the device with no
+	  capacity at all and swap could never be brought up.  Substitution is
+	  therefore required here.
+
+	  Only the size is pinned; the writeback and auto-policy layers are
+	  untouched.
+
+config CRYSTAL_HYBRIDSWAP_ZRAM_PIN_SIZE_PCT
+	int "Pinned zram size as a percentage of physical memory"
+	depends on CRYSTAL_HYBRIDSWAP_ZRAM_PIN_SIZE
+	range 10 400
+	default 150
+	help
+	  Percentage of physical memory the zram device is sized to: 150 means
+	  1.5x RAM.
+
+	  This is NOT free.  Both the per-page table and the ZMS handle table are
+	  vzalloc'd, and vmalloc backs every page eagerly -- it does not fault in
+	  on demand.  The resident cost is therefore fixed at roughly
+
+	      nr_pages * 72 bytes   (40 for zram->table + 32 for zms->handles)
+
+	  as soon as userspace sets the size, whether or not the space is ever
+	  used.  Measured on a 10.79 GiB device: 171 MiB at the stock 9.5 GiB
+	  ceiling, 292 MiB at 150% -- about +121 MiB resident, every boot.
+
+	  Raise this only with that figure in mind, and verify with
+	  /proc/vmallocinfo (the disksize_store and zms_create entries) rather
+	  than by watching MemFree.

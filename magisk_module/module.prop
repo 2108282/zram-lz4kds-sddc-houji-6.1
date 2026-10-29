@@ -1,0 +1,6 @@
+id=lz4kds_sddc
+name=ZRAM LZ4KDS (SDDC 去重 + 回写) - 小米14 专版
+version=v7.6-houji-6.1
+versionCode=761
+author=Huawei, whitewhale0612原创, Wcoom仓库, 移植适配:2108282
+description=用 crystal_hybridswap 整套 zram 驱动替换 stock zram.ko, 启用 LZ4KDS = LZ4KD + SDDC 跨页去重(REF/ALIAS/DELTA)。专为小米14 (houji) 6.1.x 内核定制编译。

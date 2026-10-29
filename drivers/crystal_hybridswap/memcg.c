@@ -1075,7 +1075,7 @@ crystal_hybridswap_memcg_get(struct cgroup_subsys_state *css, bool create)
 	if (css->cgroup && css->cgroup->kn && css->cgroup->kn->name)
 		strscpy(name, css->cgroup->kn->name, sizeof(name));
 	else
-		name[0] = ' ';
+		name[0] = 0;
 	strscpy(entry->name, name[0] ? name : "unknown", sizeof(entry->name));
 	atomic64_set(&entry->app_score, CHS_DEFAULT_APP_SCORE);
 	atomic64_set(&entry->app_uid, CHS_APP_UID_UNKNOWN);

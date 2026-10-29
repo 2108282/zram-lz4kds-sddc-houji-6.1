@@ -20,6 +20,17 @@
 #include <linux/time64.h>
 #include <linux/wait.h>
 #include <linux/workqueue.h>
+#include <linux/version.h>
+
+struct zs_pool;
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 4, 0)
+static inline unsigned int zs_lookup_class_index(struct zs_pool *pool, unsigned int size)
+{
+	(void)pool;
+	return DIV_ROUND_UP(size, 32);
+}
+#endif
 
 #define CHS_NAME			"crystal_hybridswap"
 #define CHS_MEMCG_NAME_MAX		32

@@ -1,21 +1,3 @@
-#include <linux/version.h>
-
-#ifndef abs_diff
-#define abs_diff(a, b) ({				typeof(a) __a = (a);				typeof(b) __b = (b);				__a > __b ? (__a - __b) : (__b - __a);	})
-#endif
-
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 5, 0)
-static inline bool check_charging_state(void)
-{
-	return true;
-}
-#endif
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 4, 0)
-#define CHS_CLASS_CONST const
-#else
-#define CHS_CLASS_CONST
-#endif
 /*
  * Compressed RAM block device
  *
@@ -63,6 +45,24 @@ static inline bool check_charging_state(void)
 #include "zram_drv.h"
 #include "crystal_hybridswap_internal.h"
 #include "sddc/crystal_sddc.h"
+#include <linux/version.h>
+
+#ifndef abs_diff
+#define abs_diff(a, b) ({				typeof(a) __a = (a);				typeof(b) __b = (b);				__a > __b ? (__a - __b) : (__b - __a);	})
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 5, 0)
+static inline bool check_charging_state(void)
+{
+	return true;
+}
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 4, 0)
+#define CHS_CLASS_CONST const
+#else
+#define CHS_CLASS_CONST
+#endif
 
 static DEFINE_IDR(zram_index_idr);
 /* idr index must be protected */

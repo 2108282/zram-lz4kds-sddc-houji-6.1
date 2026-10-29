@@ -16,13 +16,11 @@ MODDIR=/data/adb/modules/lz4kds_sddc
 LOG=$MODDIR/load.log
 KREL=$(uname -r)
 STOCK=/system_dlkm/flatten/lib/modules/zram.ko
-[ -f "" ] || STOCK=/system_dlkm/lib/modules//kernel/drivers/block/zram/zram.ko
-[ -f "" ] || STOCK=
 OURS=$MODDIR/zram.ko
 # ko 完整性期望值: 优先取安装时由 customize.sh 写入的 .ko_md5(随每次打包自动更新),
 # 缺失时回落到内置值。这样 "改了 ko 却忘了改脚本" 不会再导致开机被拦。
 EXPECT_KO_MD5=$(cat "$MODDIR/.ko_md5" 2>/dev/null | tr -dc '0-9a-f' | head -c 32)
-[ -n "$EXPECT_KO_MD5" ] || EXPECT_KO_MD5=df2ac6e143df2b2e38de2dd0453fa22b
+[ -n "$EXPECT_KO_MD5" ] || EXPECT_KO_MD5=b1c140785eef93668f405e7b5fb188c0
 
 uptime_s() { cut -d' ' -f1 /proc/uptime 2>/dev/null | cut -d. -f1; }
 log()      { echo "[pfd $(uptime_s)s] $*" >> "$LOG" 2>/dev/null; }
@@ -237,6 +235,7 @@ if [ -n "$MAJ" ] && [ ! -e /dev/block/zram0 ]; then
 fi
 chmod 660 /dev/block/zram0 2>/dev/null
 chown root system /dev/block/zram0 2>/dev/null
+chcon u:object_r:block_device:s0 /dev/block/zram0 2>/dev/null || true
 
 timeout 3 sh -c 'echo lz4kds > /sys/block/zram0/comp_algorithm' 2>>"$LOG"
 log "algo save rc=$? now=[$(timeout 2 cat /sys/block/zram0/comp_algorithm 2>/dev/null)]"

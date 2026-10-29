@@ -247,7 +247,7 @@ if [ "$DS" = "0" ] || [ -z "$DS" ]; then
 	echo 16G > /sys/block/zram0/disksize 2>>"$LOG"
 	log "disksize set to 16G rc=$? (val=[$(cat /sys/block/zram0/disksize 2>/dev/null)])"
 	mkswap /dev/block/zram0 2>>"$LOG"
-	swapon /dev/block/zram0 -p 32758 2>>"$LOG"
+	/system/bin/swapon /dev/block/zram0 2>>"$LOG" || swapon /dev/block/zram0 2>>"$LOG"
 	log "swapon rc=$? (swaps=[$(grep zram /proc/swaps 2>/dev/null)])"
 	kmark "zram0 16G swap online"
 fi

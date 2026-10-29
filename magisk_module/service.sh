@@ -16,6 +16,12 @@ stage() { echo "[$(upseconds)s] svc/$1 bootid=$(cat /proc/sys/kernel/random/boot
 [ -d "$MODDIR" ] || exit 0
 stage start
 
+# 双保险兜底：如果 swap 未激活，立即执行 swapon 避免锁屏内存耗尽
+if ! grep -q zram /proc/swaps 2>/dev/null; then
+	/system/bin/swapon /dev/block/zram0 2>>"$LOG" || swapon /dev/block/zram0 2>>"$LOG"
+	log "service.sh fallback swapon: rc=$? swaps=[$(grep zram /proc/swaps 2>/dev/null)]"
+fi
+
 i=0
 while [ $i -lt 150 ]; do
 	[ "$(getprop sys.boot_completed 2>/dev/null)" = "1" ] && break

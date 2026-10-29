@@ -11,13 +11,7 @@ zram-$(CONFIG_CRYSTAL_HYBRIDSWAP_SDDC_LZ4KD) += \
 	sddc/lz4kd/lz4kd_encode_delta.o \
 	sddc/lz4kd/lz4kd_decode.o
 
-ifeq ($(CONFIG_ARM64)$(CONFIG_KERNEL_MODE_NEON),yy)
-zram-$(CONFIG_CRYSTAL_HYBRIDSWAP_SDDC_LZ4KD) += \
-	sddc/lz4kd/lz4kd_neon.o
-CFLAGS_REMOVE_sddc/lz4kd/lz4kd_neon.o += -mgeneral-regs-only
-CFLAGS_sddc/lz4kd/lz4kd_neon.o += -ffreestanding \
-	-isystem $(shell $(CC) -print-file-name=include)
-endif
+# 对齐原版模块：禁用内核态 NEON，避免 kmap_atomic 路径下与渲染中断产生 FPSIMD 冲突死锁
 
 zram-$(CONFIG_CRYSTAL_HYBRIDSWAP_SDDC) += \
 	sddc/crystal_sddc.o

@@ -19,7 +19,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang-17 lld-17 llvm-17 gcc-aarch64-linux-gnu bison flex \
-                                  libssl-dev libelf-dev bc ccache zip libncurses-dev
+                                  libssl-dev libelf-dev bc ccache zip libncurses-dev curl tar
           
           # Create toolchain symlinks
           sudo ln -sf /usr/bin/clang-17 /usr/bin/clang
@@ -32,12 +32,12 @@ jobs:
 
           clang --version
 
-      - name: Clone Android 14 6.1 GKI Common Kernel
+      - name: Download Exact Android 14 6.1 GKI Common Kernel Source
         run: |
-          git clone --depth 1 --branch android14-6.1 https://android.googlesource.com/kernel/common kernel_common
-          cd kernel_common
-          git fetch --depth 1 origin 0c3d559bcd858276f52e5058cff2f741c8808d98
-          git checkout 0c3d559bcd858276f52e5058cff2f741c8808d98
+          mkdir -p kernel_common
+          echo "Downloading exact AOSP 6.1 GKI tree commit 0c3d559bcd85c64dae9c9c9687abbe5347fff3ad..."
+          curl -sSL "https://android.googlesource.com/kernel/common/+archive/0c3d559bcd85c64dae9c9c9687abbe5347fff3ad.tar.gz" | tar -xz -C kernel_common
+          ls -l kernel_common/Makefile
 
       - name: Integrate crystal_hybridswap into kernel tree
         run: |
@@ -50,21 +50,19 @@ jobs:
           echo 'obj-$(CONFIG_CRYSTAL_HYBRIDSWAP) += crystal_hybridswap/' >> kernel_common/drivers/block/Makefile
 
       - name: Configure and Build Kernel Module
-        env:
-          BRANCH: android14
-          KMI_GENERATION: 11
-          BUILD_NUMBER: 14529422
         run: |
           cd kernel_common
           
           # Copy houji defconfig
           cp ../houji_defconfig arch/arm64/configs/houji_defconfig
           
+          # Lock exact vermagic matching target boot.img
+          echo '#!/bin/sh' > scripts/setlocalversion
+          echo 'echo "-android14-11-g0c3d559bcd85-ab14529422"' >> scripts/setlocalversion
+          chmod +x scripts/setlocalversion
+          
           # Generate config
           make ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- houji_defconfig
-          
-          # Set exact kernel release string
-          echo "6.1.138-android14-11-g0c3d559bcd85-ab14529422" > include/config/kernel.release
           
           # Build kernel and modules
           make ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)

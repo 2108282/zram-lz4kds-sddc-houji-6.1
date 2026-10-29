@@ -820,37 +820,9 @@ static u64 crystal_hybridswap_pages_to_mb_u64(u64 pages)
 
 static long crystal_hybridswap_android_avail_pages(bool *fallback)
 {
-	long available;
-	unsigned long pagecache;
-	unsigned long wmark_low = 0;
-	unsigned long reclaimable;
-	struct zone *zone;
-
 	if (fallback)
-		*fallback = false;
-
-	if (!CHS_PAGES_PER_MB || !totalreserve_pages) {
-		if (fallback)
-			*fallback = true;
-		return si_mem_available();
-	}
-
-	available = global_zone_page_state(NR_FREE_PAGES) - totalreserve_pages;
-	for_each_zone(zone)
-		wmark_low += low_wmark_pages(zone);
-
-	pagecache = global_node_page_state(NR_ACTIVE_FILE) +
-		global_node_page_state(NR_INACTIVE_FILE);
-	pagecache -= min(pagecache / 2, wmark_low);
-	available += pagecache;
-
-	reclaimable = global_node_page_state_pages(NR_SLAB_RECLAIMABLE_B) +
-		global_node_page_state(NR_KERNEL_MISC_RECLAIMABLE);
-	available += reclaimable - min(reclaimable / 2, wmark_low);
-
-	if (available < 0)
-		available = 0;
-	return available;
+		*fallback = true;
+	return si_mem_available();
 }
 
 static unsigned int crystal_hybridswap_current_avail_mb(void)

@@ -477,14 +477,18 @@ static atomic_t *memcg_force_shrink_queued_counter(bool file)
 	return file ? &force_shrink_file_queued : &force_shrink_anon_queued;
 }
 
+static unsigned long
+memcg_force_shrink_lru_pages_local(struct mem_cgroup *memcg,
+				   enum node_stat_item idx);
+
 static unsigned long memcg_force_shrink_lru_pages(struct mem_cgroup *memcg,
-							 bool file, bool active)
+						  bool file, bool active)
 {
 	if (file)
-		return memcg_page_state(memcg,
+		return memcg_force_shrink_lru_pages_local(memcg,
 			active ? NR_ACTIVE_FILE : NR_INACTIVE_FILE);
 
-	return memcg_page_state(memcg,
+	return memcg_force_shrink_lru_pages_local(memcg,
 		active ? NR_ACTIVE_ANON : NR_INACTIVE_ANON);
 }
 
@@ -1068,7 +1072,10 @@ crystal_hybridswap_memcg_get(struct cgroup_subsys_state *css, bool create)
 	entry->css = css;
 	css_get(css);
 	entry->cgroup_id = cgroup_id(css->cgroup);
-	cgroup_name(css->cgroup, name, sizeof(name));
+	if (css->cgroup && css->cgroup->kn && css->cgroup->kn->name)
+		strscpy(name, css->cgroup->kn->name, sizeof(name));
+	else
+		name[0] = ' ';
 	strscpy(entry->name, name[0] ? name : "unknown", sizeof(entry->name));
 	atomic64_set(&entry->app_score, CHS_DEFAULT_APP_SCORE);
 	atomic64_set(&entry->app_uid, CHS_APP_UID_UNKNOWN);

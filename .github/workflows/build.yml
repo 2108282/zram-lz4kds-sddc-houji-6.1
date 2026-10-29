@@ -19,7 +19,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang-17 lld-17 llvm-17 gcc-aarch64-linux-gnu bison flex \
-                                  libssl-dev libelf-dev bc ccache zip libncurses-dev curl tar cpio
+                                  libssl-dev libelf-dev bc ccache zip libncurses-dev curl tar cpio dwarves
           
           # Create toolchain symlinks
           sudo ln -sf /usr/bin/clang-17 /usr/bin/clang
@@ -76,6 +76,7 @@ jobs:
           fi
           
           echo "Found compiled module: $KO_PATH"
+          llvm-strip --strip-debug "$KO_PATH"
           llvm-objdump -d --no-show-raw-insn "$KO_PATH" | head -n 20
           llvm-nm "$KO_PATH" | grep crystal_ | head -n 10
           

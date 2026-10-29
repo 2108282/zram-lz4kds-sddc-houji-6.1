@@ -3800,7 +3800,7 @@ retry:
 	zram_slot_lock(zram, index);
 	if (zram_test_flag(zram, index, ZRAM_UNDER_WB)) {
 		zram_slot_unlock(zram, index);
-		wait_on_bit_io(&zram->table[index].flags, ZRAM_UNDER_WB,
+		wait_on_bit(&zram->table[index].flags, ZRAM_UNDER_WB,
 			       TASK_UNINTERRUPTIBLE);
 		goto retry;
 	}
@@ -4169,7 +4169,7 @@ retry_lock:
 	zram_slot_lock(zram, index);
 	if (zram_test_flag(zram, index, ZRAM_UNDER_WB)) {
 		zram_slot_unlock(zram, index);
-		wait_on_bit_io(&zram->table[index].flags, ZRAM_UNDER_WB,
+		wait_on_bit(&zram->table[index].flags, ZRAM_UNDER_WB,
 			       TASK_UNINTERRUPTIBLE);
 		goto retry_lock;
 	}
@@ -5311,7 +5311,7 @@ static void zram_bio_discard(struct zram *zram, struct bio *bio)
 		zram_slot_lock(zram, index);
 		if (zram_test_flag(zram, index, ZRAM_UNDER_WB)) {
 			zram_slot_unlock(zram, index);
-			wait_on_bit_io(&zram->table[index].flags, ZRAM_UNDER_WB,
+			wait_on_bit(&zram->table[index].flags, ZRAM_UNDER_WB,
 				       TASK_UNINTERRUPTIBLE);
 			continue;
 		}

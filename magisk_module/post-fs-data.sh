@@ -15,7 +15,9 @@
 MODDIR=/data/adb/modules/lz4kds_sddc
 LOG=$MODDIR/load.log
 KREL=$(uname -r)
-STOCK=/system_dlkm/lib/modules/$KREL/kernel/drivers/block/zram/zram.ko
+STOCK=/system_dlkm/flatten/lib/modules/zram.ko
+[ -f "" ] || STOCK=/system_dlkm/lib/modules//kernel/drivers/block/zram/zram.ko
+[ -f "" ] || STOCK=
 OURS=$MODDIR/zram.ko
 # ko 完整性期望值: 优先取安装时由 customize.sh 写入的 .ko_md5(随每次打包自动更新),
 # 缺失时回落到内置值。这样 "改了 ko 却忘了改脚本" 不会再导致开机被拦。

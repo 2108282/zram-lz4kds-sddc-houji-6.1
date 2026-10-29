@@ -499,15 +499,12 @@ static void *crystal_sddc_wb_state_load_raw(struct crystal_sddc *sddc,
 static bool crystal_sddc_wb_state_install_locked(struct crystal_sddc *sddc,
 		u32 index, struct crystal_sddc_wb_state *state)
 {
-	XA_STATE(xas, &sddc->wb_states, index);
 	unsigned long flags;
 	bool installed = false;
 
 	xa_lock_irqsave(&sddc->wb_states, flags);
-	if (xas_load(&xas) == XA_ZERO_ENTRY) {
-		xas_store(&xas, state);
-		installed = !xas_error(&xas);
-	}
+	if (__xa_cmpxchg(&sddc->wb_states, index, XA_ZERO_ENTRY, state, GFP_NOWARN) == XA_ZERO_ENTRY)
+		installed = true;
 	xa_unlock_irqrestore(&sddc->wb_states, flags);
 	return installed;
 }
@@ -520,15 +517,10 @@ static void *crystal_sddc_wb_state_erase_locked(struct crystal_sddc *sddc,
 	void *entry;
 	void *removed = NULL;
 
-	/*
-	 * The slot lock serializes the zram transition; keep the XArray
-	 * comparison and erase atomic so a late reservation cannot be consumed.
-	 */
 	xa_lock_irqsave(&sddc->wb_states, flags);
 	entry = xas_load(&xas);
 	if (entry && entry != XA_ZERO_ENTRY && !xa_is_err(entry)) {
-		xas_store(&xas, NULL);
-		if (!xas_error(&xas))
+		if (__xa_erase(&sddc->wb_states, index) == entry)
 			removed = entry;
 	}
 	xa_unlock_irqrestore(&sddc->wb_states, flags);
@@ -543,15 +535,12 @@ static void *crystal_sddc_wb_state_erase_locked(struct crystal_sddc *sddc,
 static bool crystal_sddc_xa_release_reservation(struct xarray *xa,
 		unsigned long index)
 {
-	XA_STATE(xas, xa, index);
 	unsigned long flags;
 	bool released = false;
 
 	xa_lock_irqsave(xa, flags);
-	if (xas_load(&xas) == XA_ZERO_ENTRY) {
-		xas_store(&xas, NULL);
-		released = !xas_error(&xas);
-	}
+	if (__xa_cmpxchg(xa, index, XA_ZERO_ENTRY, NULL, GFP_NOWARN) == XA_ZERO_ENTRY)
+		released = true;
 	xa_unlock_irqrestore(xa, flags);
 
 	return released;
@@ -563,7 +552,6 @@ static bool crystal_sddc_xa_release_reservation(struct xarray *xa,
 static void *crystal_sddc_xa_erase_if(struct xarray *xa,
 		unsigned long index, void *expected)
 {
-	XA_STATE(xas, xa, index);
 	unsigned long flags;
 	void *removed = NULL;
 
@@ -571,11 +559,8 @@ static void *crystal_sddc_xa_erase_if(struct xarray *xa,
 		return NULL;
 
 	xa_lock_irqsave(xa, flags);
-	if (xas_load(&xas) == expected) {
-		xas_store(&xas, NULL);
-		if (!xas_error(&xas))
-			removed = expected;
-	}
+	if (__xa_cmpxchg(xa, index, expected, NULL, GFP_NOWARN) == expected)
+		removed = expected;
 	xa_unlock_irqrestore(xa, flags);
 
 	return removed;
@@ -659,19 +644,15 @@ static void crystal_sddc_state_abort(struct crystal_sddc *sddc, u32 index,
 static bool crystal_sddc_state_install_locked(struct crystal_sddc *sddc,
 		u32 index, struct crystal_sddc_slot_state *state)
 {
-	XA_STATE(xas, &sddc->slot_states, index);
 	unsigned long flags;
 	bool installed = false;
 
 	if (WARN_ON_ONCE(!state))
 		return false;
 
-	/* Consume only our reservation; never overwrite a concurrent node. */
 	xa_lock_irqsave(&sddc->slot_states, flags);
-	if (xas_load(&xas) == XA_ZERO_ENTRY) {
-		xas_store(&xas, state);
-		installed = !xas_error(&xas);
-	}
+	if (__xa_cmpxchg(&sddc->slot_states, index, XA_ZERO_ENTRY, state, GFP_NOWARN) == XA_ZERO_ENTRY)
+		installed = true;
 	xa_unlock_irqrestore(&sddc->slot_states, flags);
 
 	return installed;
@@ -955,16 +936,12 @@ static void crystal_sddc_ref_abort(struct crystal_sddc_ref *ref)
 static bool crystal_sddc_ref_publish(struct crystal_sddc *sddc,
 		struct crystal_sddc_ref *ref)
 {
-	XA_STATE(xas, &sddc->refs, 0);
 	unsigned long flags;
 	bool published = false;
 
-	xas_set(&xas, ref->cookie.id);
 	xa_lock_irqsave(&sddc->refs, flags);
-	if (xas_load(&xas) == XA_ZERO_ENTRY) {
-		xas_store(&xas, ref);
-		published = !xas_error(&xas);
-	}
+	if (__xa_cmpxchg(&sddc->refs, ref->cookie.id, XA_ZERO_ENTRY, ref, GFP_NOWARN) == XA_ZERO_ENTRY)
+		published = true;
 	xa_unlock_irqrestore(&sddc->refs, flags);
 	return published;
 }

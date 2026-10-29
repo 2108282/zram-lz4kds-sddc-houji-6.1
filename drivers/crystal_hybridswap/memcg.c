@@ -2594,41 +2594,12 @@ int crystal_hybridswap_memcg_init(void)
 	memcg_cgroup_attach_hook_registered = false;
 	memcg_css_offline_hook_registered = false;
 
-	ret = register_trace_android_vh_mem_cgroup_css_offline(
-			memcg_css_offline, NULL);
-	if (ret) {
-		chs_log(CHS_LOG_WARN,
-			"memcg css_offline hook unavailable ret=%d, offline entries will be released at module exit\n",
-			ret);
-	} else {
-		memcg_css_offline_hook_registered = true;
-		chs_log(CHS_LOG_INFO, "memcg css_offline hook registered\n");
-	}
-
-	ret = register_trace_android_vh_cgroup_attach(memcg_cgroup_attach,
-						      NULL);
-	if (ret) {
-		chs_log(CHS_LOG_WARN,
-			"cgroup attach hook unavailable ret=%d, app_uid will refresh on read\n",
-			ret);
-	} else {
-		memcg_cgroup_attach_hook_registered = true;
-		chs_log(CHS_LOG_INFO, "cgroup attach hook registered\n");
-	}
-
-	ret = register_trace_android_vh_tune_scan_type(
-			memcg_force_shrink_tune_scan_type, NULL);
-	if (ret) {
-		chs_log(CHS_LOG_WARN,
-			"force_shrink_anon tune_scan_type hook unavailable ret=%d, use best-effort anon reclaim\n",
-			ret);
-	} else {
-		WRITE_ONCE(force_shrink_anon_hook_registered, true);
-		atomic64_inc(&chs.stats.force_shrink_anon_hook);
-		chs_log(CHS_LOG_INFO,
-			"force_shrink_anon tune_scan_type hook registered\n");
-	}
-
+	/*
+	 * 在 Android GKI 6.1 (开启 CONFIG_CFI_CLANG) 环境下，
+	 * 独立动态模块注册全局 vendor hook 会在进程创建时触发 kCFI failure panic。
+	 * 此处跳过 hook 注册，走内置的 safe fallback 流程。
+	 */
+	chs_log(CHS_LOG_INFO, "GKI safe mode: skip vendor hooks to avoid kCFI mismatch\n");
 	ret = cgroup_add_legacy_cftypes(&memory_cgrp_subsys,
 					crystal_hybridswap_memcg_files);
 	if (ret) {

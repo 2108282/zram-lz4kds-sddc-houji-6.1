@@ -21,6 +21,41 @@
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/percpu_counter.h>
+#include <linux/version.h>
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 5, 0)
+static inline int chs_percpu_counter_init_many(struct percpu_counter *fbc,
+					       s64 amount, gfp_t gfp, u32 nr)
+{
+	u32 i;
+	int ret = 0;
+
+	for (i = 0; i < nr; i++) {
+		ret = percpu_counter_init(&fbc[i], amount, gfp);
+		if (ret) {
+			while (i--)
+				percpu_counter_destroy(&fbc[i]);
+			break;
+		}
+	}
+	return ret;
+}
+
+static inline void chs_percpu_counter_destroy_many(struct percpu_counter *fbc, u32 nr)
+{
+	u32 i;
+
+	for (i = 0; i < nr; i++)
+		percpu_counter_destroy(&fbc[i]);
+}
+
+#ifndef percpu_counter_init_many
+#define percpu_counter_init_many chs_percpu_counter_init_many
+#endif
+#ifndef percpu_counter_destroy_many
+#define percpu_counter_destroy_many chs_percpu_counter_destroy_many
+#endif
+#endif
 #include <linux/slab.h>
 #include <linux/sizes.h>
 #include <linux/string.h>

@@ -10,7 +10,11 @@
 #include <linux/slab.h>
 #include <linux/string.h>
 
+#if __has_include(<linux/crystal_hybridswap.h>)
 #include <linux/crystal_hybridswap.h>
+#else
+int crystal_hybridswap_signal_pressure(unsigned int level);
+#endif
 
 #include "crystal_hybridswap_internal.h"
 

@@ -42,6 +42,7 @@ jobs:
       - name: Integrate crystal_hybridswap into kernel tree
         run: |
           cp -r drivers/crystal_hybridswap kernel_common/drivers/block/
+          cp -r include/* kernel_common/include/
           
           # Hook Kconfig
           echo 'source "drivers/block/crystal_hybridswap/Kconfig"' >> kernel_common/drivers/block/Kconfig

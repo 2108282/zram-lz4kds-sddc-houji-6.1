@@ -42,7 +42,6 @@
 #include <linux/debugfs.h>
 #include <linux/cpuhotplug.h>
 #include <linux/part_stat.h>
-#include <linux/sysms_finder.h>
 
 #include "zram_drv.h"
 #include "crystal_hybridswap_internal.h"

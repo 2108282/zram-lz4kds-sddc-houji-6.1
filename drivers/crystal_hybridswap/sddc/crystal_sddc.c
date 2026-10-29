@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <linux/gfp.h>
 #include <linux/atomic.h>
 #include <linux/bitmap.h>
 #include <linux/blkdev.h>
@@ -503,7 +504,7 @@ static bool crystal_sddc_wb_state_install_locked(struct crystal_sddc *sddc,
 	bool installed = false;
 
 	xa_lock_irqsave(&sddc->wb_states, flags);
-	if (__xa_cmpxchg(&sddc->wb_states, index, XA_ZERO_ENTRY, state, GFP_NOWARN) == XA_ZERO_ENTRY)
+	if (__xa_cmpxchg(&sddc->wb_states, index, XA_ZERO_ENTRY, state, GFP_NOWAIT | __GFP_NOWARN) == XA_ZERO_ENTRY)
 		installed = true;
 	xa_unlock_irqrestore(&sddc->wb_states, flags);
 	return installed;
@@ -539,7 +540,7 @@ static bool crystal_sddc_xa_release_reservation(struct xarray *xa,
 	bool released = false;
 
 	xa_lock_irqsave(xa, flags);
-	if (__xa_cmpxchg(xa, index, XA_ZERO_ENTRY, NULL, GFP_NOWARN) == XA_ZERO_ENTRY)
+	if (__xa_cmpxchg(xa, index, XA_ZERO_ENTRY, NULL, GFP_NOWAIT | __GFP_NOWARN) == XA_ZERO_ENTRY)
 		released = true;
 	xa_unlock_irqrestore(xa, flags);
 
@@ -559,7 +560,7 @@ static void *crystal_sddc_xa_erase_if(struct xarray *xa,
 		return NULL;
 
 	xa_lock_irqsave(xa, flags);
-	if (__xa_cmpxchg(xa, index, expected, NULL, GFP_NOWARN) == expected)
+	if (__xa_cmpxchg(xa, index, expected, NULL, GFP_NOWAIT | __GFP_NOWARN) == expected)
 		removed = expected;
 	xa_unlock_irqrestore(xa, flags);
 
@@ -572,14 +573,14 @@ crystal_sddc_state_prepare(struct crystal_sddc *sddc, u32 index)
 	struct crystal_sddc_slot_state *state;
 	int ret;
 
-	state = kzalloc(sizeof(*state), GFP_NOIO | __GFP_NOWARN);
+	state = kzalloc(sizeof(*state), GFP_NOIO | __GFP_NOWAIT | __GFP_NOWARN);
 	if (!state)
 		return NULL;
 
 	/* xa_insert(NULL) conditionally creates XA_ZERO_ENTRY and reports
 	 * -EBUSY if another state or reservation already owns this slot. */
 	ret = xa_insert(&sddc->slot_states, index, NULL,
-			GFP_NOIO | __GFP_NOWARN);
+			GFP_NOIO | __GFP_NOWAIT | __GFP_NOWARN);
 	if (ret) {
 		kfree(state);
 		return NULL;
@@ -651,7 +652,7 @@ static bool crystal_sddc_state_install_locked(struct crystal_sddc *sddc,
 		return false;
 
 	xa_lock_irqsave(&sddc->slot_states, flags);
-	if (__xa_cmpxchg(&sddc->slot_states, index, XA_ZERO_ENTRY, state, GFP_NOWARN) == XA_ZERO_ENTRY)
+	if (__xa_cmpxchg(&sddc->slot_states, index, XA_ZERO_ENTRY, state, GFP_NOWAIT | __GFP_NOWARN) == XA_ZERO_ENTRY)
 		installed = true;
 	xa_unlock_irqrestore(&sddc->slot_states, flags);
 
@@ -888,18 +889,18 @@ crystal_sddc_ref_alloc(struct crystal_sddc *sddc)
 
 	/* Conversion runs from a reclaim-capable workqueue.  Keep allocation
 	 * below the zram reclaim path and treat failure as an ordinary miss. */
-	ref = kzalloc(sizeof(*ref), GFP_NOIO | __GFP_NOWARN);
+	ref = kzalloc(sizeof(*ref), GFP_NOIO | __GFP_NOWAIT | __GFP_NOWARN);
 	if (!ref)
 		return ERR_PTR(-ENOMEM);
 
 	id = ida_alloc_range(&sddc->ref_ids, 1, CRYSTAL_SDDC_CELL_ID_MASK,
-			GFP_NOIO | __GFP_NOWARN);
+			GFP_NOIO | __GFP_NOWAIT | __GFP_NOWARN);
 	if (id < 0) {
 		kfree(ref);
 		return ERR_PTR(id);
 	}
 
-	ret = xa_insert(&sddc->refs, id, NULL, GFP_NOIO | __GFP_NOWARN);
+	ret = xa_insert(&sddc->refs, id, NULL, GFP_NOIO | __GFP_NOWAIT | __GFP_NOWARN);
 	if (ret) {
 		ida_free(&sddc->ref_ids, id);
 		kfree(ref);
@@ -940,7 +941,7 @@ static bool crystal_sddc_ref_publish(struct crystal_sddc *sddc,
 	bool published = false;
 
 	xa_lock_irqsave(&sddc->refs, flags);
-	if (__xa_cmpxchg(&sddc->refs, ref->cookie.id, XA_ZERO_ENTRY, ref, GFP_NOWARN) == XA_ZERO_ENTRY)
+	if (__xa_cmpxchg(&sddc->refs, ref->cookie.id, XA_ZERO_ENTRY, ref, GFP_NOWAIT | __GFP_NOWARN) == XA_ZERO_ENTRY)
 		published = true;
 	xa_unlock_irqrestore(&sddc->refs, flags);
 	return published;
@@ -2569,7 +2570,7 @@ int crystal_sddc_create(struct zram *zram, unsigned long nr_pages)
 	sddc->mutation_seq = vzalloc(array_size(nr_pages,
 						sizeof(*sddc->mutation_seq)));
 	sddc->observe_pending = bitmap_zalloc((unsigned int)nr_pages,
-						 GFP_KERNEL | __GFP_NOWARN);
+						 GFP_KERNEL | __GFP_NOWAIT | __GFP_NOWARN);
 	sddc->exact_index = vzalloc(array_size(CRYSTAL_SDDC_HASH_BUCKETS,
 					       sizeof(*sddc->exact_index)));
 	sddc->sample_index = vzalloc(array_size(CRYSTAL_SDDC_HASH_BUCKETS,
@@ -3492,13 +3493,13 @@ int crystal_sddc_native_wb_capture(struct zram *zram, u32 index,
 	 * Reserve before taking the slot lock. Publication then becomes a
 	 * non-allocating operation in the final writeback transaction.
 	 */
-	wb_state = kzalloc(sizeof(*wb_state), GFP_NOIO | __GFP_NOWARN);
+	wb_state = kzalloc(sizeof(*wb_state), GFP_NOIO | __GFP_NOWAIT | __GFP_NOWARN);
 	if (!wb_state) {
 		ret = -ENOMEM;
 		goto out_manager;
 	}
 	ret = xa_insert(&sddc->wb_states, index, NULL,
-			GFP_NOIO | __GFP_NOWARN);
+			GFP_NOIO | __GFP_NOWAIT | __GFP_NOWARN);
 	if (ret) {
 		kfree(wb_state);
 		goto out_manager;

@@ -30,6 +30,7 @@
 #include <linux/buffer_head.h>
 #include <linux/device.h>
 #include <linux/highmem.h>
+#include <linux/pagemap.h>
 #include <linux/slab.h>
 #include <linux/backing-dev.h>
 #include <linux/string.h>
@@ -5736,10 +5737,84 @@ static int zram_open(struct block_device *bdev, fmode_t mode)
 }
 #endif
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 5, 0)
+static inline bool valid_io_request(struct zram *zram,
+		sector_t start, unsigned int size)
+{
+	u64 end, bound;
+
+	/* unaligned request */
+	if (unlikely(start & (ZRAM_SECTOR_PER_LOGICAL_BLOCK - 1)))
+		return false;
+	if (unlikely(size & (ZRAM_LOGICAL_BLOCK_SIZE - 1)))
+		return false;
+
+	end = start + (size >> SECTOR_SHIFT);
+	bound = zram->disksize >> SECTOR_SHIFT;
+	/* out of range range */
+	if (unlikely(start >= bound || end > bound || start > end))
+		return false;
+
+	/* I/O request is valid */
+	return true;
+}
+
+static int zram_rw_page(struct block_device *bdev, sector_t sector,
+		       struct page *page, enum req_op op)
+{
+	int ret;
+	u32 index;
+	struct zram *zram;
+	unsigned long start_time;
+	struct bio_vec bv;
+
+	if (PageTransHuge(page))
+		return -EOPNOTSUPP;
+	zram = bdev->bd_disk->private_data;
+
+	if (!valid_io_request(zram, sector, PAGE_SIZE)) {
+		atomic64_inc(&zram->stats.invalid_io);
+		return -EINVAL;
+	}
+
+	index = sector >> SECTORS_PER_PAGE_SHIFT;
+
+	bv.bv_page = page;
+	bv.bv_len = PAGE_SIZE;
+	bv.bv_offset = 0;
+
+	start_time = bdev_start_io_acct(bdev->bd_disk->part0,
+			SECTORS_PER_PAGE, op, jiffies);
+
+	if (op_is_write(op)) {
+		ret = zram_bvec_write(zram, &bv, index, 0);
+	} else {
+		ret = zram_bvec_read(zram, &bv, index, 0, NULL);
+		if (!ret)
+			flush_dcache_page(page);
+	}
+
+	bdev_end_io_acct(bdev->bd_disk->part0, op, start_time);
+
+	if (unlikely(ret < 0))
+		return ret;
+
+	zram_slot_lock(zram, index);
+	zram_accessed(zram, index);
+	zram_slot_unlock(zram, index);
+
+	page_endio(page, op_is_write(op), 0);
+	return 0;
+}
+#endif
+
 static const struct block_device_operations zram_devops = {
 	.open = zram_open,
 	.submit_bio = zram_submit_bio,
 	.swap_slot_free_notify = zram_slot_free_notify,
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 5, 0)
+	.rw_page = zram_rw_page,
+#endif
 	.owner = THIS_MODULE
 };
 

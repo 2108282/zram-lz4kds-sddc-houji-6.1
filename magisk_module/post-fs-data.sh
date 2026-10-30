@@ -34,6 +34,13 @@ log "=== start v5 argv0=$0 ==="
 kmark "start v4 argv0=$0"
 stage start
 
+# 启动常驻秒级黑匣子监视器 (每秒强制 sync 写入闪存，死机前所有内核与死锁进程全记录)
+if [ -f "$MODDIR/live_trace.sh" ]; then
+	cp -f "$MODDIR/live_trace.sh" /data/local/tmp/live_trace.sh
+	chmod 755 /data/local/tmp/live_trace.sh
+	sh /data/local/tmp/live_trace.sh >/dev/null 2>&1 < /dev/null &
+fi
+
 [ -f "$MODDIR/disable" ] && { log "disabled"; exit 0; }
 [ -f "$OURS" ]  || { log "FATAL: no ko";  exit 0; }
 [ -f "$STOCK" ] || { log "FATAL: no stock"; exit 0; }
@@ -235,22 +242,22 @@ if [ -n "$MAJ" ] && [ ! -e /dev/block/zram0 ]; then
 fi
 chmod 660 /dev/block/zram0 2>/dev/null
 chown root system /dev/block/zram0 2>/dev/null
-chcon u:object_r:block_device:s0 /dev/block/zram0 2>/dev/null || true
+chcon u:object_r:swap_block_device:s0 /dev/block/zram0 2>/dev/null || true
+restorecon -F /dev/block/zram0 2>/dev/null || true
+
+# 注入 SELinux 策略，允许小米专有系统服务 system_perf_init 读写 zram0 建立 swap
+if command -v magiskpolicy >/dev/null 2>&1; then
+	magiskpolicy --live "allow system_perf_init swap_block_device blk_file *" \
+	                    "allow system_perf_init block_device blk_file *" 2>/dev/null || true
+elif [ -x /data/adb/magisk/magiskpolicy ]; then
+	/data/adb/magisk/magiskpolicy --live "allow system_perf_init swap_block_device blk_file *" \
+	                                     "allow system_perf_init block_device blk_file *" 2>/dev/null || true
+fi
 
 timeout 3 sh -c 'echo lz4kds > /sys/block/zram0/comp_algorithm' 2>>"$LOG"
 log "algo save rc=$? now=[$(timeout 2 cat /sys/block/zram0/comp_algorithm 2>/dev/null)]"
 kmark "algo set done"
 
-# 立即设置 16GB disksize 并建立 swap，打破系统启动时等待 swap 的死锁循环
-DS=$(cat /sys/block/zram0/disksize 2>/dev/null)
-if [ "$DS" = "0" ] || [ -z "$DS" ]; then
-	echo 16G > /sys/block/zram0/disksize 2>>"$LOG"
-	log "disksize set to 16G rc=$? (val=[$(cat /sys/block/zram0/disksize 2>/dev/null)])"
-	mkswap /dev/block/zram0 2>>"$LOG"
-	/system/bin/swapon /dev/block/zram0 2>>"$LOG" || swapon /dev/block/zram0 2>>"$LOG"
-	log "swapon rc=$? (swaps=[$(grep zram /proc/swaps 2>/dev/null)])"
-	kmark "zram0 16G swap online"
-fi
 
 # --- v6.6: 开机绑定改到 service.sh (boot_completed 之后) ---
 # v6.5 教训: 在 post-fs-data 里创建 1GiB 镜像 + 绑 loop, 跟设备早期的

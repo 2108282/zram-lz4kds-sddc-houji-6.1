@@ -18,8 +18,12 @@ stage start
 
 # 双保险兜底：如果 swap 未激活，立即执行 swapon 避免锁屏内存耗尽
 if ! grep -q zram /proc/swaps 2>/dev/null; then
-	/system/bin/swapon /dev/block/zram0 2>>"$LOG" || swapon /dev/block/zram0 2>>"$LOG"
-	log "service.sh fallback swapon: rc=$? swaps=[$(grep zram /proc/swaps 2>/dev/null)]"
+	DS=$(cat /sys/block/zram0/disksize 2>/dev/null)
+	if [ -n "$DS" ] && [ "$DS" != "0" ]; then
+		/system/bin/mkswap /dev/block/zram0 2>>"$LOG" || mkswap /dev/block/zram0 2>>"$LOG"
+		/system/bin/swapon /dev/block/zram0 2>>"$LOG" || swapon /dev/block/zram0 2>>"$LOG"
+		log "service.sh fallback swapon: rc=$? swaps=[$(grep zram /proc/swaps 2>/dev/null)]"
+	fi
 fi
 
 i=0
@@ -36,6 +40,11 @@ if [ "$(getprop sys.boot_completed 2>/dev/null)" = "1" ]; then
 	log "boot_completed OK -> counter reset | comp=[$ALG] zram_in_swap=$SW"
 	kmark "boot_completed OK comp=[$ALG]"
 	stage boot_completed
+
+	# 系统成功启动进入桌面，停止秒级追踪
+	pkill -f "/data/local/tmp/live_trace.sh" 2>/dev/null || true
+	echo "=== BOOT COMPLETED SUCCESSFULLY at $(date +%T) ===" >> /data/local/tmp/freeze_trace.log
+	sync
 
 	# --- v6.9: 回写交给小米 extm ---
 	# 小米 umms/extm 会把 extm 块(dm-swapfile)绑到 zram0/backing_dev;

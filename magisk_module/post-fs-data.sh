@@ -20,7 +20,7 @@ OURS=$MODDIR/zram.ko
 # ko 完整性期望值: 优先取安装时由 customize.sh 写入的 .ko_md5(随每次打包自动更新),
 # 缺失时回落到内置值。这样 "改了 ko 却忘了改脚本" 不会再导致开机被拦。
 EXPECT_KO_MD5=$(cat "$MODDIR/.ko_md5" 2>/dev/null | tr -dc '0-9a-f' | head -c 32)
-[ -n "$EXPECT_KO_MD5" ] || EXPECT_KO_MD5=b1c140785eef93668f405e7b5fb188c0
+[ -n "$EXPECT_KO_MD5" ] || EXPECT_KO_MD5=052a0cc31ba5f00af5420c1826fb3cf2
 
 uptime_s() { cut -d' ' -f1 /proc/uptime 2>/dev/null | cut -d. -f1; }
 log()      { echo "[pfd $(uptime_s)s] $*" >> "$LOG" 2>/dev/null; }
@@ -200,6 +200,29 @@ grep -q '^zsmalloc ' /proc/modules 2>/dev/null || { log "ABORT: no zsmalloc"; ex
 if grep -q '^zram ' /proc/modules 2>/dev/null; then
 	# v7.1: 标记“本次启动真的开始改 zram 了”, 供下次开机归因
 	echo "$BID" > "$REPLACE_BID_F" 2>/dev/null
+	
+# 在卸载出厂驱动前，调用 cgroup_rm_cftypes 彻底注销小米残留的 memsw_protected_files 节点
+# (从根源消除 39s 后台 App 创建 cgroup 导致的 cgroup_addrm_files 段错误硬重启)
+KR_SAVED=$(cat /proc/sys/kernel/kptr_restrict 2>/dev/null)
+echo 0 > /proc/sys/kernel/kptr_restrict 2>/dev/null
+
+CFT=$(grep -E '[[:space:]]memsw_protected_files([[:space:]]|$)' /proc/kallsyms 2>/dev/null | head -1 | awk '{print $1}')
+RM=$(grep -E '[[:space:]]cgroup_rm_cftypes([[:space:]]|$)' /proc/kallsyms 2>/dev/null | head -1 | awk '{print $1}')
+
+case "$CFT" in ''|*[!0-9a-fA-F]*|0000000000000000) CFT="" ;; esac
+case "$RM" in ''|*[!0-9a-fA-F]*|0000000000000000) RM="" ;; esac
+
+log "cgroup pre-rmmod clean: cft=[$CFT] rm=[$RM]"
+if [ -n "$CFT" ] && [ -n "$RM" ] && [ -f "$ZAP" ]; then
+	dmesg -c >/dev/null 2>&1
+	insmod "$ZAP" cft="$CFT" rm="$RM" mode=1 2>>"$LOG"; ZRC=$?
+	log "tpzap cft clean rc=$ZRC"
+	sleep 0.1
+	dmesg | grep TPZAP >> "$LOG" 2>/dev/null
+	rmmod tpzap 2>/dev/null
+fi
+[ -n "$KR_SAVED" ] && echo "$KR_SAVED" > /proc/sys/kernel/kptr_restrict 2>/dev/null
+
 	kmark "step: rmmod stock"
 	rmmod zram 2>>"$LOG"; RC=$?
 	log "rmmod rc=$RC"

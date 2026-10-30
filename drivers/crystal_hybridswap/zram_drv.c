@@ -5772,10 +5772,8 @@ static int zram_rw_page(struct block_device *bdev, sector_t sector,
 		return -EOPNOTSUPP;
 	zram = bdev->bd_disk->private_data;
 
-	if (!valid_io_request(zram, sector, PAGE_SIZE)) {
-		atomic64_inc(&zram->stats.invalid_io);
+	if (!valid_io_request(zram, sector, PAGE_SIZE))
 		return -EINVAL;
-	}
 
 	index = sector >> SECTORS_PER_PAGE_SHIFT;
 

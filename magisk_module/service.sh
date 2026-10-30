@@ -16,6 +16,20 @@ stage() { echo "[$(upseconds)s] svc/$1 bootid=$(cat /proc/sys/kernel/random/boot
 [ -d "$MODDIR" ] || exit 0
 stage start
 
+
+# 确保 protected-app 节点的 bind-mount 持续生效
+DUMMY=/data/local/tmp/.anno_dummy
+[ -f "$DUMMY" ] || { echo 1 > "$DUMMY"; chmod 666 "$DUMMY"; }
+
+for node in /dev/memcg/protected-app/memory.anno_writeback_protected \
+            /dev/memcg/freeze-app/memory.anno_writeback_enable \
+            /dev/memcg/protected-app/memory.anno_writeback_control \
+            /dev/memcg/memory.anno_writeback_protected; do
+	if [ -e "$node" ]; then
+		mount -o bind "$DUMMY" "$node" 2>/dev/null || true
+	fi
+done
+
 # 双保险兜底：如果 swap 未激活，立即执行 swapon 避免锁屏内存耗尽
 if ! grep -q zram /proc/swaps 2>/dev/null; then
 	DS=$(cat /sys/block/zram0/disksize 2>/dev/null)

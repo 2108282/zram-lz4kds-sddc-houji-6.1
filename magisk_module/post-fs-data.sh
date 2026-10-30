@@ -218,6 +218,21 @@ log "insmod rc=$RC"
 dmesg > "$MODDIR/dmesg_after_insmod.log" 2>/dev/null
 kmark "insmod done rc=$RC"
 
+
+# 彻底根治小米出厂驱动卸载后遗留在 cgroupfs 里的野指针节点 (防止 28s init 打开触发 cgroup_file_open Oops 重启)
+DUMMY=/data/local/tmp/.anno_dummy
+echo 1 > "$DUMMY" 2>/dev/null
+chmod 666 "$DUMMY" 2>/dev/null
+
+for node in /dev/memcg/protected-app/memory.anno_writeback_protected \
+            /dev/memcg/freeze-app/memory.anno_writeback_enable \
+            /dev/memcg/protected-app/memory.anno_writeback_control \
+            /dev/memcg/memory.anno_writeback_protected; do
+	if [ -e "$node" ]; then
+		mount -o bind "$DUMMY" "$node" 2>/dev/null || true
+	fi
+done
+
 if [ "$RC" != "0" ]; then
 	log "insmod failed -> restore stock"
 	grep -q '^zram ' /proc/modules 2>/dev/null && rmmod zram 2>>"$LOG"

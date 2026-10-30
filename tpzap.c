@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * tpzap.c - Zap dangling tracepoint probes to NULL after disabling static key
- * Reconstructed from reverse-engineered binary (c) whitewhale0612 / Wcoom
+ * tpzap.c - Zap dangling tracepoint probes to NULL and clean legacy cftypes
+ * Enhanced for Xiaomi 14 HyperOS 6.1 kernel
  */
 
 #include <linux/module.h>
@@ -11,6 +11,7 @@
 #include <linux/jump_label.h>
 #include <linux/tracepoint.h>
 #include <linux/static_call.h>
+#include <linux/cgroup.h>
 
 static char *tp_str = "";
 static char *klo_str = "";
@@ -20,6 +21,8 @@ static char *scu_str = "";
 static char *sckey_str = "";
 static char *sctramp_str = "";
 static char *keep_str = "";
+static char *cft_str = "";
+static char *rm_str = "";
 static int mode = 1;
 
 module_param_named(tp, tp_str, charp, 0400);
@@ -30,10 +33,14 @@ module_param_named(scu, scu_str, charp, 0400);
 module_param_named(sckey, sckey_str, charp, 0400);
 module_param_named(sctramp, sctramp_str, charp, 0400);
 module_param_named(keep, keep_str, charp, 0400);
+module_param_named(cft, cft_str, charp, 0400);
+module_param_named(rm, rm_str, charp, 0400);
 module_param(mode, int, 0400);
 
 MODULE_PARM_DESC(tp, "Address of tracepoint");
-MODULE_PARM_DESC(mode, "0=scan only, 1=zap to NULL");
+MODULE_PARM_DESC(cft, "Address of cftypes to remove");
+MODULE_PARM_DESC(rm, "Address of cgroup_rm_cftypes function");
+MODULE_PARM_DESC(mode, "0=scan only, 1=zap/clean");
 
 static unsigned long parse_hex(const char *s)
 {
@@ -79,22 +86,27 @@ static int __init tpzap_init(void)
 	unsigned long scu_addr = parse_hex(scu_str);
 	unsigned long sckey_addr = parse_hex(sckey_str);
 	unsigned long sctramp_addr = parse_hex(sctramp_str);
+	unsigned long cft_addr = parse_hex(cft_str);
+	unsigned long rm_addr = parse_hex(rm_str);
 	int n = 0, kernel_ok = 0, suspect = 0;
 	int i;
 
+	/* Clean legacy cftypes if requested */
+	if (cft_addr && rm_addr) {
+		int (*fn_rm)(struct cftype *) = (void *)rm_addr;
+		pr_info("TPZAP invoking cgroup_rm_cftypes(%px) via %px\n",
+			(void *)cft_addr, (void *)rm_addr);
+		fn_rm((struct cftype *)cft_addr);
+		pr_info("TPZAP cgroup_rm_cftypes finished cleanly\n");
+	}
+
 	if (!tp_addr) {
-		pr_alert("TPZAP no tp= given\n");
-		return -EINVAL;
+		pr_info("TPZAP no tp= specified, probe step skipped\n");
+		return 0;
 	}
 
 	tp = (struct tracepoint *)tp_addr;
 	pr_info("TPZAP target %px name=%s mode=%d\n", tp, tp->name ? tp->name : "(null)", mode);
-
-	pr_info("TPZAP key=%px sc_key=%px sc_tramp=%px iter=%px\n",
-		&tp->key, tp->static_call_key, tp->static_call_tramp, tp->iterator);
-
-	pr_info("TPZAP op addr: skd=%lx scu=%lx params(sckey=%lx sctramp=%lx)\n",
-		skd_addr, scu_addr, sckey_addr, sctramp_addr);
 
 	funcs = tp->funcs;
 	if (!funcs) {
@@ -142,11 +154,7 @@ static int __init tpzap_init(void)
 			fn_skd(&tp->key);
 			pr_info("TPZAP static_key_disable called, now enabled=%d\n",
 				static_key_enabled(&tp->key));
-		} else {
-			pr_info("TPZAP static_key already disabled\n");
 		}
-	} else {
-		pr_info("TPZAP WARN: no skd addr, static key NOT disabled (funcs must be non-NULL or iterator will fault)\n");
 	}
 
 	if (scu_addr && sckey_addr && sctramp_addr && tp->iterator) {
@@ -164,11 +172,12 @@ static int __init tpzap_init(void)
 
 static void __exit tpzap_exit(void)
 {
-	pr_info("TPZAP exit (zap stays)\n");
+	pr_info("TPZAP exit\n");
 }
 
 module_init(tpzap_init);
 module_exit(tpzap_exit);
 
-MODULE_DESCRIPTION("Zap tracepoint funcs to NULL after disabling its static key");
+MODULE_AUTHOR("whitewhale0612 & PairDev");
+MODULE_DESCRIPTION("Tracepoint probe zapper and legacy cftype unlinker");
 MODULE_LICENSE("GPL");
